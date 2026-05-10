@@ -1,0 +1,38 @@
+name: Weekly Vacation Notifier
+
+on:
+  schedule:
+    # 매주 월요일 09:00 KST = 월요일 00:00 UTC
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without posting to Slack"
+        required: false
+        default: "false"
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Post weekly vacation summary
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_SOURCE_CHANNEL_ID: ${{ secrets.SLACK_SOURCE_CHANNEL_ID }}
+          SLACK_TARGET_CHANNEL_ID: ${{ secrets.SLACK_TARGET_CHANNEL_ID }}
+          SLACK_USER_GROUP_ID: ${{ secrets.SLACK_USER_GROUP_ID }}
+          DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '' }}
+        run: npm start
