@@ -28,7 +28,7 @@ function loadEnv(): Env {
     SLACK_TARGET_CHANNEL_ID: process.env["SLACK_TARGET_CHANNEL_ID"]!,
     SLACK_USER_GROUP_ID: process.env["SLACK_USER_GROUP_ID"]!,
     LOOKBACK_DAYS: Number(process.env["LOOKBACK_DAYS"] ?? "60"),
-    HORIZON_DAYS: Number(process.env["HORIZON_DAYS"] ?? "7"),
+    HORIZON_DAYS: Number(process.env["HORIZON_DAYS"] ?? "14"),
     DRY_RUN: Boolean(process.env["DRY_RUN"]),
   };
 }
@@ -127,7 +127,7 @@ function buildThread(
   rangeStart: Date,
   rangeEnd: Date
 ): Thread {
-  const header = `📅 *이번 주 휴가 일정* (${fmtKst(rangeStart)} ~ ${fmtKst(rangeEnd)})`;
+  const header = `📅 *향후 2주 휴가 일정* (${fmtKst(rangeStart)} ~ ${fmtKst(rangeEnd)})`;
   if (entries.length === 0) {
     return { parent: `${header}\n등록된 일정이 없어요.`, replies: [] };
   }
