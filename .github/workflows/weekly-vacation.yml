@@ -34,5 +34,6 @@ jobs:
           SLACK_SOURCE_CHANNEL_ID: ${{ secrets.SLACK_SOURCE_CHANNEL_ID }}
           SLACK_TARGET_CHANNEL_ID: ${{ secrets.SLACK_TARGET_CHANNEL_ID }}
           SLACK_USER_GROUP_ID: ${{ secrets.SLACK_USER_GROUP_ID }}
+          SLACK_EXTRA_USER_IDS: "U07CL33TFM0,U093LTKREH0"
           DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '' }}
         run: npm start

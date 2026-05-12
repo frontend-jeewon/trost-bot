@@ -7,6 +7,7 @@ type Env = {
   SLACK_SOURCE_CHANNEL_ID: string;
   SLACK_TARGET_CHANNEL_ID: string;
   SLACK_USER_GROUP_ID: string;
+  SLACK_EXTRA_USER_IDS: string[];
   LOOKBACK_DAYS: number;
   HORIZON_DAYS: number;
   DRY_RUN: boolean;
@@ -27,6 +28,10 @@ function loadEnv(): Env {
     SLACK_SOURCE_CHANNEL_ID: process.env["SLACK_SOURCE_CHANNEL_ID"]!,
     SLACK_TARGET_CHANNEL_ID: process.env["SLACK_TARGET_CHANNEL_ID"]!,
     SLACK_USER_GROUP_ID: process.env["SLACK_USER_GROUP_ID"]!,
+    SLACK_EXTRA_USER_IDS: (process.env["SLACK_EXTRA_USER_IDS"] ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
     LOOKBACK_DAYS: Number(process.env["LOOKBACK_DAYS"] ?? "60"),
     HORIZON_DAYS: Number(process.env["HORIZON_DAYS"] ?? "14"),
     DRY_RUN: Boolean(process.env["DRY_RUN"]),
@@ -46,11 +51,16 @@ function fmtKst(date: Date): string {
   return `${date.getUTCMonth() + 1}/${date.getUTCDate()}(${dow})`;
 }
 
-async function getTargetMemberNames(slack: SlackClient, groupId: string): Promise<Set<string>> {
+async function getTargetMemberNames(
+  slack: SlackClient,
+  groupId: string,
+  extraUserIds: string[] = []
+): Promise<Set<string>> {
   const res = await slack.usergroups.users.list({ usergroup: groupId });
-  const ids = res.users ?? [];
+  const groupIds = res.users ?? [];
+  const ids = Array.from(new Set([...groupIds, ...extraUserIds]));
   if (ids.length === 0) {
-    throw new Error(`User group ${groupId} has no members`);
+    throw new Error(`No users to collect: group ${groupId} is empty and no extra IDs provided`);
   }
   const infos = await Promise.all(
     ids.map((id) => slack.users.info({ user: id }).then((r) => r.user))
@@ -201,7 +211,11 @@ async function main(): Promise<void> {
     `Range: ${fmtKst(today)} ~ ${fmtKst(horizon)} | lookback ${env.LOOKBACK_DAYS} days`
   );
 
-  const names = await getTargetMemberNames(slack, env.SLACK_USER_GROUP_ID);
+  const names = await getTargetMemberNames(
+    slack,
+    env.SLACK_USER_GROUP_ID,
+    env.SLACK_EXTRA_USER_IDS
+  );
   console.log(`Target group has ${names.size} unique name aliases`);
 
   const messages = await fetchSourceMessages(
