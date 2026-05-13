@@ -127,19 +127,41 @@ function overlaps(entry: ParsedRegistration, rangeStart: Date, rangeEnd: Date): 
   return entry.startDate <= rangeEnd && entry.endDate >= rangeStart;
 }
 
-type Thread = {
-  parent: string;
-  replies: string[];
-};
+const NOTION_URL =
+  "https://www.notion.so/351a054b7d828067b6b8cab80f28956a?source=copy_link";
 
-function buildThread(
+const DIVIDER = "￣￣￣￣￣￣￣￣￣￣";
+
+const WEEK_LABELS = ["이번주", "다음주", "다다음주", "다다다음주"];
+
+function kstWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getUTCDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + offset);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function formatEntryLine(e: ParsedRegistration): string {
+  const dateLabel =
+    e.startDate.getTime() === e.endDate.getTime()
+      ? fmtKst(e.startDate)
+      : `${fmtKst(e.startDate)} ~ ${fmtKst(e.endDate)}`;
+  const time = e.timeRange ? ` ${e.timeRange}` : e.allDay ? " (하루종일)" : "";
+  return `• ${e.name} — ${dateLabel}${time}`;
+}
+
+function buildMessage(
   entries: ParsedRegistration[],
   rangeStart: Date,
   rangeEnd: Date
-): Thread {
-  const header = `📅 *향후 2주 휴가 일정* (${fmtKst(rangeStart)} ~ ${fmtKst(rangeEnd)})`;
+): string {
+  const header = `:date: 향후 2주 휴가 일정 (${fmtKst(rangeStart)} ~ ${fmtKst(rangeEnd)})`;
+  const notionLink = `자세한 내용은 <${NOTION_URL}|:노션: 노션 확인>`;
+
   if (entries.length === 0) {
-    return { parent: `${header}\n등록된 일정이 없어요.`, replies: [] };
+    return `${header}\n등록된 일정이 없어요.\n${notionLink}`;
   }
 
   entries.sort(
@@ -147,54 +169,54 @@ function buildThread(
       a.startDate.getTime() - b.startDate.getTime() || a.name.localeCompare(b.name)
   );
 
-  const parent = `${header}\n총 *${entries.length}건* 등록되어 있어요. 자세한 내용은 스레드 확인 👇`;
-
-  const lines = entries.map((e) => {
-    const dateLabel =
-      e.startDate.getTime() === e.endDate.getTime()
-        ? fmtKst(e.startDate)
-        : `${fmtKst(e.startDate)} ~ ${fmtKst(e.endDate)}`;
-    const time = e.timeRange ? ` ${e.timeRange}` : e.allDay ? " (하루종일)" : "";
-    return `• ${e.name} — ${dateLabel}${time}`;
-  });
-
-  const replies: string[] = [];
-  const CHUNK = 30;
-  for (let i = 0; i < lines.length; i += CHUNK) {
-    replies.push(lines.slice(i, i + CHUNK).join("\n"));
+  const todayWeekStart = kstWeekStart(rangeStart);
+  const buckets = new Map<number, ParsedRegistration[]>();
+  for (const e of entries) {
+    const effectiveStart =
+      e.startDate.getTime() < rangeStart.getTime() ? rangeStart : e.startDate;
+    const weekStart = kstWeekStart(effectiveStart);
+    const idx = Math.round(
+      (weekStart.getTime() - todayWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)
+    );
+    if (!buckets.has(idx)) buckets.set(idx, []);
+    buckets.get(idx)!.push(e);
   }
-  return { parent, replies };
+
+  const sections = Array.from(buckets.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([idx, bucketEntries]) => {
+      const label = WEEK_LABELS[idx] ?? `${idx + 1}주 후`;
+      return `-----${label}-----\n\n${bucketEntries.map(formatEntryLine).join("\n")}`;
+    })
+    .join("\n\n\n");
+
+  return [
+    header,
+    `총 ${entries.length}건 등록되어 있어요.`,
+    notionLink,
+    "",
+    DIVIDER,
+    sections,
+    DIVIDER,
+  ].join("\n");
 }
 
-async function postThread(
+async function postMessage(
   slack: SlackClient,
   channel: string,
-  thread: Thread,
+  text: string,
   dryRun: boolean
 ): Promise<void> {
   if (dryRun) {
-    console.log("--- DRY RUN ---");
-    console.log("[parent]\n" + thread.parent);
-    for (const r of thread.replies) console.log("\n[reply]\n" + r);
+    console.log("--- DRY RUN ---\n" + text);
     return;
   }
-  const parentRes = await slack.chat.postMessage({
+  await slack.chat.postMessage({
     channel,
-    text: thread.parent,
+    text,
     unfurl_links: false,
     unfurl_media: false,
   });
-  const ts = parentRes.ts;
-  if (!ts) throw new Error("Failed to retrieve thread_ts from parent message");
-  for (const reply of thread.replies) {
-    await slack.chat.postMessage({
-      channel,
-      text: reply,
-      thread_ts: ts,
-      unfurl_links: false,
-      unfurl_media: false,
-    });
-  }
 }
 
 async function main(): Promise<void> {
@@ -230,8 +252,8 @@ async function main(): Promise<void> {
   const filtered = valid.filter((e) => names.has(e.name) && overlaps(e, today, horizon));
   console.log(`Filtered to ${filtered.length} entries for target members`);
 
-  const thread = buildThread(filtered, today, horizon);
-  await postThread(slack, env.SLACK_TARGET_CHANNEL_ID, thread, env.DRY_RUN);
+  const message = buildMessage(filtered, today, horizon);
+  await postMessage(slack, env.SLACK_TARGET_CHANNEL_ID, message, env.DRY_RUN);
   console.log("Done.");
 }
 
